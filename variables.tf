@@ -130,7 +130,7 @@ variable "replication_configurations" {
       destinations = list(object({
         # Maximum 25
         region      = string
-        registry_id = string
+        registry_id = optional(string) # if not present will default to the current account
       }))
       repository_filters = list(object({
         filter      = string
@@ -247,7 +247,6 @@ variable "custom_lifecycle_rules" {
   }
 }
 
-
 variable "default_lifecycle_rules_settings" {
   description = "Default lifecycle rules settings"
   type = object({
@@ -270,4 +269,10 @@ variable "default_lifecycle_rules_settings" {
       enabled = true
     }
   }
+}
+
+variable "only_repository_policy" {
+  type        = bool
+  description = "Whether to skip creating repositories and only modify the policy for existing repositories"
+  default     = false
 }
