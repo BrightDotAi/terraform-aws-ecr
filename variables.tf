@@ -271,8 +271,8 @@ variable "default_lifecycle_rules_settings" {
   }
 }
 
-variable "only_repository_policy" {
+variable "repository_creation_enabled" {
   type        = bool
-  description = "Whether to skip creating repositories and only modify the policy for existing repositories"
-  default     = false
+  description = "Whether ECR repositories should be created"
+  default     = true
 }

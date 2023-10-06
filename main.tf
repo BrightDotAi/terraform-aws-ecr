@@ -23,10 +23,11 @@ locals {
 locals {
   _name       = var.use_fullname ? module.this.id : module.this.name
   image_names = length(var.image_names) > 0 ? var.image_names : [local._name]
+  repository_creation_enabled = module.this.enabled && var.repository_creation_enabled
 }
 
 resource "aws_ecr_repository" "name" {
-  for_each             = toset(module.this.enabled && !var.only_repository_policy ? local.image_names : [])
+  for_each             = toset(local.repository_creation_enabled ? local.image_names : [])
   name                 = each.value
   image_tag_mutability = var.image_tag_mutability
   force_delete         = var.force_delete
@@ -170,7 +171,7 @@ locals {
 }
 
 resource "aws_ecr_lifecycle_policy" "name" {
-  for_each   = toset(module.this.enabled && var.enable_lifecycle_policy && !var.only_repository_policy ? local.image_names : [])
+  for_each   = toset(local.repository_creation_enabled && var.enable_lifecycle_policy ? local.image_names : [])
   repository = aws_ecr_repository.name[each.value].name
 
   policy = local.lifecycle_policy
@@ -427,7 +428,7 @@ resource "aws_ecr_replication_configuration" "replication_configuration" {
             for_each = rule.value.destinations
             content {
               region      = destination.value.region
-              registry_id = destination.value.registry_id
+              registry_id = can(destination.value.registry_id) ? destination.value.registry_id : data.aws_caller_identity.current.account_id
             }
           }
           dynamic "repository_filter" {
