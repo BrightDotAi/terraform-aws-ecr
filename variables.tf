@@ -53,9 +53,11 @@ variable "time_based_rotation" {
 }
 
 variable "image_names" {
-  type        = list(string)
-  default     = []
-  description = "List of Docker local image names, used as repository names for AWS ECR "
+  type        = map(object({
+    force_delete_override = optional(bool,false)
+    archive_enabled = optional(bool,false)
+  }))
+  description = "Map of Docker local image names, used as repository names for AWS ECR. Sets `force_delete` option"
 }
 
 variable "image_tag_mutability" {

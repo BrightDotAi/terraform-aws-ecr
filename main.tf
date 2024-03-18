@@ -22,15 +22,15 @@ locals {
 
 locals {
   _name       = var.use_fullname ? module.this.id : module.this.name
-  image_names = length(var.image_names) > 0 ? var.image_names : [local._name]
+  image_names = length(var.image_names) > 0 ? var.image_names : tomap(local._name)
   repository_creation_enabled = module.this.enabled && var.repository_creation_enabled
 }
 
 resource "aws_ecr_repository" "name" {
-  for_each             = toset(local.repository_creation_enabled ? local.image_names : [])
-  name                 = each.value
+  for_each             = local.repository_creation_enabled ? local.image_names : {}
+  name                 = each.key
   image_tag_mutability = var.image_tag_mutability
-  force_delete         = var.force_delete
+  force_delete         = each.value.force_delete_override
 
   dynamic "encryption_configuration" {
     for_each = var.encryption_configuration == null ? [] : [var.encryption_configuration]
@@ -171,8 +171,8 @@ locals {
 }
 
 resource "aws_ecr_lifecycle_policy" "name" {
-  for_each   = toset(local.repository_creation_enabled && var.enable_lifecycle_policy ? local.image_names : [])
-  repository = aws_ecr_repository.name[each.value].name
+  for_each   = local.repository_creation_enabled && var.enable_lifecycle_policy ? local.image_names : {}
+  repository = aws_ecr_repository.name[each.key].name
 
   policy = local.lifecycle_policy
 }
