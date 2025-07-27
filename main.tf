@@ -12,7 +12,7 @@ locals {
   repository_creation_enabled = module.this.enabled && var.repository_creation_enabled
 
   principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_full_access, var.principals_lambda))
-  image_names_pullthrough       = toset([ for k,v in local.image_names : k if contains(var.pulltrhough_prefixes, split("/", k)[0]) ])
+  image_names_pullthrough       = toset([ for k,v in local.image_names : k if contains(var.pullthrough_prefixes, split("/", k)[0]) ])
 }
 
 resource "aws_ecr_repository" "name" {

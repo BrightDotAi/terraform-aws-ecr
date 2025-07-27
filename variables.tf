@@ -87,7 +87,7 @@ variable "repository_creation_enabled" {
   default     = true
 }
 
-variable "pulltrhough_prefixes" {
+variable "pullthrough_prefixes" {
   type = list(string)
   default = []
 }
