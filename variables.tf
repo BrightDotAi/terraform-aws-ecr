@@ -278,3 +278,8 @@ variable "repository_creation_enabled" {
   description = "Whether ECR repositories should be created"
   default     = true
 }
+
+variable "pullthrough_prefixes" {
+  type = list(string)
+  default = []
+}

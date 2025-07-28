@@ -21,9 +21,12 @@ locals {
 }
 
 locals {
-  _name       = var.use_fullname ? module.this.id : module.this.name
-  image_names = length(var.image_names) > 0 ? var.image_names : tomap(local._name)
+  _name                       = var.use_fullname ? module.this.id : module.this.name
+  image_names                 = length(var.image_names) > 0 ? var.image_names : tomap(local._name)
   repository_creation_enabled = module.this.enabled && var.repository_creation_enabled
+
+  principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_full_access, var.principals_lambda))
+  image_names_pullthrough       = toset([ for k,v in local.image_names : k if contains(var.pullthrough_prefixes, split("/", k)[0]) ])
 }
 
 resource "aws_ecr_repository" "name" {
@@ -269,6 +272,25 @@ data "aws_iam_policy_document" "resource_full_access" {
   }
 }
 
+ data "aws_iam_policy_document" "resource_pull_through_cache" {
+   count = module.this.enabled ? 1 : 0
+
+   statement {
+     sid    = "PullThroughAccess"
+     effect = "Allow"
+
+     principals {
+       type        = "AWS"
+       identifiers = local.principals_pullthrough_access
+     }
+
+     actions = [
+       "ecr:BatchImportUpstreamImage",
+       "ecr:TagResource"
+     ]
+   }
+ }
+
 data "aws_iam_policy_document" "lambda_access" {
   count = module.this.enabled && length(var.principals_lambda) > 0 ? 1 : 0
 
@@ -410,6 +432,16 @@ data "aws_iam_policy_document" "resource" {
   ])
 }
 
+ data "aws_iam_policy_document" "pullthrough_resource" {
+   count                   = module.this.enabled ? 1 : 0
+   source_policy_documents = [data.aws_iam_policy_document.resource_pull_through_cache[0].json]
+   override_policy_documents = distinct([
+       local.principals_readonly_access_non_empty ? data.aws_iam_policy_document.resource_readonly_access[0].json : data.aws_iam_policy_document.empty[0].json,
+       local.principals_full_access_non_empty ? data.aws_iam_policy_document.resource_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
+       local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json,
+   ])
+ }
+
 resource "aws_ecr_repository_policy" "name" {
   for_each   = toset(local.ecr_need_policy && module.this.enabled && !var.only_repository_policy ? local.image_names : [])
   repository = aws_ecr_repository.name[each.value].name
@@ -443,6 +475,8 @@ resource "aws_ecr_replication_configuration" "replication_configuration" {
     }
   }
 }
+
+data "aws_caller_identity" "current" {}
 
 resource "aws_ecr_repository_policy" "permissions_only_name" {
   for_each   = toset(local.ecr_need_policy && module.this.enabled && var.only_repository_policy ? local.image_names : [])
