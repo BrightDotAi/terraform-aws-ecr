@@ -1,5 +1,5 @@
  locals {
-   enabled       = local.enabled
+   enabled       = module.this.enabled
    enabled_count = local.enabled ? 1 : 0
    
   principals_readonly_access_non_empty = length(var.principals_readonly_access) > 0
