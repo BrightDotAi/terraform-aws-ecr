@@ -166,11 +166,12 @@ variable "prefixes_pull_through_repositories" {
 }
 
 variable "custom_lifecycle_rules" {
-  description = "Custom lifecycle rules to override or complement the default ones"
+  description = "Custom lifecycle rules to override or complement the default ones. Action type can be 'expire' or 'transition'. Use 'transition' with targetStorageClass='archive' to archive images instead of deleting them. StorageClass can be 'standard' (default) or 'archive'."
   type = list(object({
     description = optional(string)
     selection = object({
       tagStatus      = string
+      storageClass   = optional(string, "standard")
       countType      = string
       countNumber    = number
       countUnit      = optional(string)
@@ -178,7 +179,8 @@ variable "custom_lifecycle_rules" {
       tagPatternList = optional(list(string))
     })
     action = object({
-      type = string
+      type               = string
+      targetStorageClass = optional(string)
     })
   }))
   default = []
@@ -218,6 +220,30 @@ variable "custom_lifecycle_rules" {
       rule.selection.countType != "sinceImagePushed" || rule.selection.countUnit != null
     ])
     error_message = "For countType = 'sinceImagePushed', countUnit must be specified."
+  }
+
+  validation {
+    condition = alltrue([
+      for rule in var.custom_lifecycle_rules :
+      contains(["expire", "transition"], rule.action.type)
+    ])
+    error_message = "Valid values for action.type are: expire or transition."
+  }
+
+  validation {
+    condition = alltrue([
+      for rule in var.custom_lifecycle_rules :
+      rule.action.type != "transition" || rule.action.targetStorageClass != null
+    ])
+    error_message = "For action.type = 'transition', targetStorageClass must be specified."
+  }
+
+  validation {
+    condition = alltrue([
+      for rule in var.custom_lifecycle_rules :
+      contains(["standard", "archive"], rule.selection.storageClass)
+    ])
+    error_message = "Valid values for storageClass are: standard or archive. Defaults to standard."
   }
 }
 
