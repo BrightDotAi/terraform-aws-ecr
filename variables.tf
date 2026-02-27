@@ -22,7 +22,7 @@ variable "principals_readonly_access" {
   default     = []
 }
 
-variable "principals_pull_though_access" {
+variable "principals_pullthrough_access" {
   type        = list(string)
   description = "Principal ARNs to provide with pull though access to the ECR"
   default     = []
@@ -34,11 +34,11 @@ variable "principals_lambda" {
   default     = []
 }
 
-variable "scan_images_on_push" {
-  type        = bool
-  description = "Indicates whether images are scanned after being pushed to the repository (true) or not (false)"
-  default     = true
-}
+#variable "scan_images_on_push" {
+#  type        = bool
+#  description = "Indicates whether images are scanned after being pushed to the repository (true) or not (false)"
+#  default     = true
+#}
 
 variable "max_image_count" {
   type        = number
@@ -52,21 +52,46 @@ variable "time_based_rotation" {
   default     = false
 }
 
-variable "image_names" {
+variable "repositories" {
   type        = map(object({
-    force_delete_override = optional(bool,false)
-    archive_enabled = optional(bool,false)
+    force_delete = optional(bool, false)
+    image_tag_mutability = optional(string) #May be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`. Defaults to `IMMUTABLE`"
+    image_tag_mutability_exclusion_filter = optional(list(object({
+      filter      = string
+      filter_type = optional(string, "WILDCARD")
+    })))
+    replication_configuration = optional(list(object({
+      region      = string
+      registry_id = optional(string) # if not present will default to the current account
+    })), [])
+    lifecycle_rules_override = optional(list(object({
+      description = optional(string)
+      rulePriority   = number
+      selection = object({
+        tagStatus      = string
+        storageClass   = optional(string, "standard")
+        countType      = string
+        countNumber    = number
+        countUnit      = optional(string)
+        tagPrefixList  = optional(list(string))
+        tagPatternList = optional(list(string))
+      })
+      action = object({
+        type               = string
+        targetStorageClass = optional(string)
+      })
+    })))
   }))
   description = "Map of Docker local image names, used as repository names for AWS ECR. Sets `force_delete` option"
 }
 
-variable "image_tag_mutability" {
+variable "default_image_tag_mutability" {
   type        = string
-  default     = "IMMUTABLE"
-  description = "The tag mutability setting for the repository. Must be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`. Defaults to `IMMUTABLE`"
+  default     = "MUTABLE"
+  description = "The tag mutability setting for all repository. Must be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`. Defaults to `IMMUTABLE`"
 }
 
-variable "image_tag_mutability_exclusion_filter" {
+variable "default_image_tag_mutability_exclusion_filter" {
   type = list(object({
     filter      = string
     filter_type = optional(string, "WILDCARD")
@@ -76,7 +101,7 @@ variable "image_tag_mutability_exclusion_filter" {
 
   validation {
     condition = alltrue([
-      for filter in var.image_tag_mutability_exclusion_filter :
+      for filter in var.default_image_tag_mutability_exclusion_filter :
       contains(["WILDCARD"], filter.filter_type)
     ])
     error_message = "filter_type must be `WILDCARD`"
@@ -84,29 +109,11 @@ variable "image_tag_mutability_exclusion_filter" {
 
   validation {
     condition = alltrue([
-      for filter in var.image_tag_mutability_exclusion_filter :
+      for filter in var.default_image_tag_mutability_exclusion_filter :
       length(trimspace(filter.filter)) > 0
     ])
     error_message = "filter value cannot be empty or contain only whitespace."
   }
-}
-
-variable "enable_lifecycle_policy" {
-  type        = bool
-  description = "Set to false to prevent the module from adding any lifecycle policies to any repositories"
-  default     = true
-}
-
-variable "protected_tags" {
-  type        = set(string)
-  description = "List of image tags prefixes and wildcards that should not be destroyed. Useful if you tag images with prefixes like `dev`, `staging`, `prod` or wildcards like `*dev`, `*prod`,`*.*.*`"
-  default     = []
-}
-
-variable "protected_tags_keep_count" {
-  type        = number
-  description = "Number of Image versions to keep for protected tags"
-  default     = 999999
 }
 
 variable "encryption_configuration" {
@@ -118,13 +125,7 @@ variable "encryption_configuration" {
   default     = null
 }
 
-variable "force_delete" {
-  type        = bool
-  description = "Whether to delete the repository even if it contains images"
-  default     = false
-}
-
-variable "replication_configurations" {
+variable "default_replication_configurations" {
   description = "Replication configuration for a registry. See [Replication Configuration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecr_replication_configuration#replication-configuration)."
   type = list(object({
     rules = list(object({
@@ -161,16 +162,17 @@ variable "organizations_push_access" {
   default     = []
 }
 
-variable "prefixes_pull_through_repositories" {
+variable "prefixes_pullthrough_repositories" {
   type        = list(string)
   description = "Organization IDs to provide with push access to the ECR"
   default     = []
 }
 
-variable "custom_lifecycle_rules" {
-  description = "Custom lifecycle rules to override or complement the default ones. Action type can be 'expire' or 'transition'. Use 'transition' with targetStorageClass='archive' to archive images instead of deleting them. StorageClass can be 'standard' (default) or 'archive'."
+variable "default_lifecycle_rules" {
+  description = "Default rules that will apply to all repositories unless overridden by repository specific rules. Action type can be 'expire' or 'transition'. Use 'transition' with targetStorageClass='archive' to archive images instead of deleting them. StorageClass can be 'standard' (default) or 'archive'."
   type = list(object({
     description = optional(string)
+    rulePriority   = number
     selection = object({
       tagStatus      = string
       storageClass   = optional(string, "standard")
@@ -188,14 +190,23 @@ variable "custom_lifecycle_rules" {
   default = []
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
       rule.selection.tagStatus != "tagged" || (length(coalesce(rule.selection.tagPrefixList, [])) > 0 || length(coalesce(rule.selection.tagPatternList, [])) > 0)
     ])
     error_message = "if tagStatus is tagged - specify tagPrefixList or tagPatternList"
   }
+
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
+      (length(coalesce(rule.selection.tagPrefixList, [])) == 0 || length(coalesce(rule.selection.tagPatternList, [])) == 0)
+    ])
+    error_message = "Cannot specify both tagPrefixList and tagPatternList in the same rule.  Separate them into multiple rules"
+  }
+
+  validation {
+    condition = alltrue([
+      for rule in var.default_lifecycle_rules :
       rule.selection.countNumber > 0
     ])
     error_message = "Count number should be > 0"
@@ -203,14 +214,14 @@ variable "custom_lifecycle_rules" {
 
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
       contains(["tagged", "untagged", "any"], rule.selection.tagStatus)
     ])
     error_message = "Valid values for tagStatus are: tagged, untagged, or any."
   }
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
       contains(["imageCountMoreThan", "sinceImagePushed"], rule.selection.countType)
     ])
     error_message = "Valid values for countType are: imageCountMoreThan or sinceImagePushed."
@@ -218,7 +229,7 @@ variable "custom_lifecycle_rules" {
 
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
       rule.selection.countType != "sinceImagePushed" || rule.selection.countUnit != null
     ])
     error_message = "For countType = 'sinceImagePushed', countUnit must be specified."
@@ -226,7 +237,7 @@ variable "custom_lifecycle_rules" {
 
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
       contains(["expire", "transition"], rule.action.type)
     ])
     error_message = "Valid values for action.type are: expire or transition."
@@ -234,7 +245,7 @@ variable "custom_lifecycle_rules" {
 
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
       rule.action.type != "transition" || rule.action.targetStorageClass != null
     ])
     error_message = "For action.type = 'transition', targetStorageClass must be specified."
@@ -242,34 +253,18 @@ variable "custom_lifecycle_rules" {
 
   validation {
     condition = alltrue([
-      for rule in var.custom_lifecycle_rules :
+      for rule in var.default_lifecycle_rules :
       contains(["standard", "archive"], rule.selection.storageClass)
     ])
     error_message = "Valid values for storageClass are: standard or archive. Defaults to standard."
   }
-}
 
-variable "default_lifecycle_rules_settings" {
-  description = "Default lifecycle rules settings"
-  type = object({
-    untagged_image_rule = optional(object({
-      enabled = optional(bool, true)
-      }), {
-      enabled = true
-    })
-    remove_old_image_rule = optional(object({
-      enabled = optional(bool, true)
-      }), {
-      enabled = true
-    })
-  })
-  default = {
-    untagged_image_rule = {
-      enabled = true
-    }
-    remove_old_image_rule = {
-      enabled = true
-    }
+  validation {
+    condition = alltrue([
+      for rule in var.default_lifecycle_rules :
+      rule.selection.tagPrefixList == null || alltrue([for prefix in rule.selection.tagPrefixList : can(regex("^[[:alnum:]\\-\\._]+$", prefix))])
+    ])
+    error_message = "Valid values for tagPrefixList matches may only contain alphanumeric characters, '.', '-', and '_'. If you are trying to use '*', use tagPatternList instead."
   }
 }
 

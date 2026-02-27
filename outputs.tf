@@ -1,20 +1,20 @@
-output "registry_id" {
-  value       = local.repository_creation_enabled ? aws_ecr_repository.name[keys(local.image_names)[0]].registry_id : ""
+output "registry_ids" {
+  value       = local.repository_creation_enabled ? distinct(values(aws_ecr_repository.name)[*].registry_id) : []
   description = "Registry ID"
 }
 
-output "repository_name" {
-  value       = local.repository_creation_enabled ? aws_ecr_repository.name[keys(local.image_names)[0]].name : ""
+output "repository_names" {
+  value       = local.repository_creation_enabled ? distinct(values(aws_ecr_repository.name)[*].name) : []
   description = "Name of first repository created"
 }
 
-output "repository_url" {
-  value       = local.repository_creation_enabled ? aws_ecr_repository.name[keys(local.image_names)[0]].repository_url : ""
+output "repository_urls" {
+  value       = local.repository_creation_enabled ? distinct(values(aws_ecr_repository.name)[*].repository_url) : []
   description = "URL of first repository created"
 }
 
-output "repository_arn" {
-  value       = local.repository_creation_enabled ? aws_ecr_repository.name[keys(local.image_names)[0]].arn : ""
+output "repository_arns" {
+  value       = local.repository_creation_enabled ? distinct(values(aws_ecr_repository.name)[*].arn) : []
   description = "ARN of first repository created"
 }
 
@@ -29,7 +29,20 @@ output "repository_url_map" {
 output "repository_arn_map" {
   value = local.repository_creation_enabled ? zipmap(
     values(aws_ecr_repository.name)[*].name,
-    values(aws_ecr_repository.name)[*].arn
+    [for k, v in zipmap(values(aws_ecr_repository.name)[*].arn, values(aws_ecr_repository.name)[*].repository_url) : {
+      repository_arn = k
+      repository_url = v
+    }]
   ) : {}
   description = "Map of repository names to repository ARNs"
+}
+
+output "default_lifecycle_rules_json" {
+  value = local.default_lifecycle_rules_json
+  description = "debug output lifecycle rules json"
+}
+
+output "custom_lifecycle_rules_json" {
+  value = local.custom_lifecycle_rules_json
+  description = "debug output custom rules json"
 }
