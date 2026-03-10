@@ -59,7 +59,7 @@ variable "repositories" {
     image_tag_mutability_exclusion_filter = optional(list(object({
       filter      = string
       filter_type = optional(string, "WILDCARD")
-    })))
+    })), [])
     replication_configuration = optional(list(object({
       region      = string
       registry_id = optional(string) # if not present will default to the current account

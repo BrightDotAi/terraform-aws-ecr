@@ -34,6 +34,8 @@ locals {
   existing_repository_names         = length(data.aws_ecr_repositories.existing[0].names) > 0 ? data.aws_ecr_repositories.existing[0].names : []
   standard_repositories_existing    = local.enabled ? setintersection(local.standard_repositories, local.existing_repository_names) : []
   pullthrough_repositories_existing = local.enabled ? setintersection(local.pullthrough_repositories, local.existing_repository_names) : []
+
+  # remove key:value pairs from the lifecycle rules object when value is null.  For compliance with ECR API 
   default_lifecycle_rules = [ for rule in var.default_lifecycle_rules : merge(
     {
       for k, v in rule:
@@ -58,6 +60,7 @@ locals {
   
   default_lifecycle_rules_json = jsonencode({ rules = local.default_lifecycle_rules})
 
+  # remove key:value pairs from the lifecycle rules object when value is null.  For compliance with ECR API
   custom_lifecycle_rules = { for k, v in var.repositories:
     k => [ for rule in v.lifecycle_rules_override: merge(
       {
@@ -87,11 +90,22 @@ locals {
     k => jsonencode({ rules = v})
   }
 
-  # exclusion_filter = { for k, v in var.repositories: 
-  #   k => ( v.image_tag_mutability != null ? 
-  #   ( strcontains(each.value.image_tag_mutability, "_WITH_EXCLUSION" ) ? each.value.image_tag_mutability_exclusion_filter[*].filter : [] ) : 
-  #   ( strcontains(var.default_image_tag_mutability, "_WITH_EXCLUSION" ) ? var.default_image_tag_mutability_exclusion_filter[*].filter : [] ))
-
+  image_tag_mutability = { for k, v in var.repositories:
+    k => v.image_tag_mutability != null ? {
+      image_tag_mutability = v.image_tag_mutability
+      image_tag_mutability_exclusion_filter = strcontains( v.image_tag_mutability, "_WITH_EXCLUSION") ? [
+        for exclusion_filter in v.image_tag_mutability_exclusion_filter : 
+        {
+          filter = exclusion_filter.filter
+          filter_type = exclusion_filter.filter_type
+        }
+      ] : []
+    } :
+    {
+      image_tag_mutability = var.default_image_tag_mutability
+      image_tag_mutability_exclusion_filter = var.default_image_tag_mutability_exclusion_filter
+    }  
+  }
 }
 
 
@@ -102,16 +116,16 @@ data "aws_ecr_repositories" "existing" {
 resource "aws_ecr_repository" "name" {
   for_each             = local.repository_creation_enabled ? var.repositories : {}
   name                 = each.key
-  image_tag_mutability = each.value.image_tag_mutability != null ? each.value.image_tag_mutability : var.default_image_tag_mutability
-  # dynamic "image_tag_mutability_exclusion_filter" {
-  #   for_each = ( each.value.image_tag_mutability != null ? 
-  #   ( strcontains(each.value.image_tag_mutability, "_WITH_EXCLUSION" ) ? each.value.image_tag_mutability_exclusion_filter[*].filter : [] ) : 
-  #   ( strcontains(var.default_image_tag_mutability, "_WITH_EXCLUSION" ) ? var.default_image_tag_mutability_exclusion_filter[*].filter : [] ))
-  #   content {
-  #     filter = each.value
-  #     filter_type = "WILDCARD"
-  #   }
-  # }
+  image_tag_mutability = local.image_tag_mutability[each.key].image_tag_mutability
+
+  dynamic "image_tag_mutability_exclusion_filter" {
+    for_each = local.image_tag_mutability[each.key].image_tag_mutability_exclusion_filter
+    content {
+      filter = image_tag_mutability_exclusion_filter.value.filter
+      filter_type = image_tag_mutability_exclusion_filter.value.filter_type
+    }
+  }
+  
   force_delete         = each.value.force_delete
 
   dynamic "encryption_configuration" {
