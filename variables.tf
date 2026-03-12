@@ -1,9 +1,3 @@
-variable "use_fullname" {
-  type        = bool
-  default     = false
-  description = "Set 'true' to use `namespace-stage-name` for ecr repository name, else `name`"
-}
-
 variable "principals_full_access" {
   type        = list(string)
   description = "Principal ARNs to provide with full access to the ECR"
@@ -38,12 +32,6 @@ variable "principals_lambda" {
   type        = list(string)
   description = "Principal account IDs of Lambdas allowed to consume ECR"
   default     = []
-}
-
-variable "scan_images_on_push" {
- type        = bool
- description = "Indicates whether images are scanned after being pushed to the repository (true) or not (false)"
- default     = true
 }
 
 variable "repositories" {
@@ -190,10 +178,11 @@ variable "default_lifecycle_rules" {
     ])
     error_message = "Valid values for tagStatus are: tagged, untagged, or any."
   }
+  
   validation {
     condition = alltrue([
       for rule in var.default_lifecycle_rules :
-      contains(["imageCountMoreThan", "sinceImagePushed"], rule.selection.countType)
+      contains(["imageCountMoreThan", "sinceImagePushed", "sinceImagePulled", "sinceImageTransitioned"], rule.selection.countType)
     ])
     error_message = "Valid values for countType are: imageCountMoreThan or sinceImagePushed."
   }
@@ -228,13 +217,5 @@ variable "default_lifecycle_rules" {
       contains(["standard", "archive"], rule.selection.storageClass)
     ])
     error_message = "Valid values for storageClass are: standard or archive. Defaults to standard."
-  }
-
-  validation {
-    condition = alltrue([
-      for rule in var.default_lifecycle_rules :
-      rule.selection.tagPrefixList == null || alltrue([for prefix in rule.selection.tagPrefixList : can(regex("^[[:alnum:]\\-\\._]+$", prefix))])
-    ])
-    error_message = "Valid values for tagPrefixList matches may only contain alphanumeric characters, '.', '-', and '_'. If you are trying to use '*', use tagPatternList instead."
   }
 }
