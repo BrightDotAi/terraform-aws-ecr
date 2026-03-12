@@ -3,29 +3,21 @@ locals {
   enabled_count = local.enabled ? 1 : 0
 
   principals_readonly_access_non_empty     = length(var.principals_readonly_access) > 0
-  principals_pullthrough_access_non_empty  = length(var.principals_pullthrough_access) > 0
   principals_push_access_non_empty         = length(var.principals_push_access) > 0
   principals_full_access_non_empty         = length(var.principals_full_access) > 0
   principals_lambda_non_empty              = length(var.principals_lambda) > 0
-  organizations_readonly_access_non_empty  = length(var.organizations_readonly_access) > 0
-  organizations_full_access_non_empty      = length(var.organizations_full_access) > 0
-  organizations_push_non_empty             = length(var.organizations_push_access) > 0
 
   ecr_need_policy = (
     length(var.principals_full_access)
     + length(var.principals_readonly_access)
-    + length(var.principals_pullthrough_access)
     + length(var.principals_push_access)
-    + length(var.principals_lambda)
-    + length(var.organizations_readonly_access)
-    + length(var.organizations_full_access)
-    + length(var.organizations_push_access) > 0
+    + length(var.principals_lambda) > 0
   )
 
   _name       = var.use_fullname ? module.this.id : module.this.name
   image_names = keys(var.repositories)
   repository_creation_enabled   = local.enabled && var.repository_creation_enabled
-  principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_pullthrough_access, var.principals_full_access, var.principals_lambda))
+  principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_full_access, var.principals_lambda))
   image_names_pullthrough       = toset([ for k,v in var.repositories : k if contains(var.pullthrough_prefixes, split("/", k)[0]) ])
 
   standard_repositories    = local.ecr_need_policy && local.enabled ? setsubtract(local.image_names, local.image_names_pullthrough) : []
@@ -107,7 +99,6 @@ locals {
     }  
   }
 }
-
 
 data "aws_ecr_repositories" "existing" {
   count = local.enabled_count
@@ -275,106 +266,15 @@ data "aws_iam_policy_document" "lambda_access" {
   }
 }
 
-data "aws_iam_policy_document" "organizations_readonly_access" {
-  count = module.this.enabled && length(var.organizations_readonly_access) > 0 ? 1 : 0
-
-  statement {
-    sid    = "OrganizationsReadonlyAccess"
-    effect = "Allow"
-
-    principals {
-      identifiers = ["*"]
-      type        = "*"
-    }
-
-    condition {
-      test     = "StringEquals"
-      values   = var.organizations_readonly_access
-      variable = "aws:PrincipalOrgID"
-    }
-
-    actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:BatchGetImage",
-      "ecr:DescribeImageScanFindings",
-      "ecr:DescribeImages",
-      "ecr:DescribeRepositories",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:GetLifecyclePolicy",
-      "ecr:GetLifecyclePolicyPreview",
-      "ecr:GetRepositoryPolicy",
-      "ecr:ListImages",
-      "ecr:ListTagsForResource",
-    ]
-  }
-}
-
-data "aws_iam_policy_document" "organization_full_access" {
-  count = module.this.enabled && length(var.organizations_full_access) > 0 ? 1 : 0
-
-  statement {
-    sid    = "OrganizationsFullAccess"
-    effect = "Allow"
-
-    principals {
-      identifiers = ["*"]
-      type        = "*"
-    }
-
-    condition {
-      test     = "StringEquals"
-      values   = var.organizations_full_access
-      variable = "aws:PrincipalOrgID"
-    }
-
-    actions = [
-      "ecr:*",
-    ]
-  }
-}
-
-data "aws_iam_policy_document" "organization_push_access" {
-  count = module.this.enabled && length(var.organizations_push_access) > 0 ? 1 : 0
-
-  statement {
-    sid    = "OrganizationsPushAccess"
-    effect = "Allow"
-
-    principals {
-      identifiers = ["*"]
-      type        = "*"
-    }
-
-    condition {
-      test     = "StringEquals"
-      values   = var.organizations_push_access
-      variable = "aws:PrincipalOrgID"
-    }
-
-    actions = [
-      "ecr:CompleteLayerUpload",
-      "ecr:GetAuthorizationToken",
-      "ecr:UploadLayerPart",
-      "ecr:InitiateLayerUpload",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:PutImage",
-    ]
-  }
-}
-
 data "aws_iam_policy_document" "resource" {
   for_each = toset(local.ecr_need_policy && module.this.enabled ? local.image_names : [])
   source_policy_documents = local.principals_readonly_access_non_empty ? [
     data.aws_iam_policy_document.resource_readonly_access[0].json
   ] : [data.aws_iam_policy_document.empty[0].json]
   override_policy_documents = distinct([
-    local.principals_pullthrough_access_non_empty && contains(var.prefixes_pullthrough_repositories, regex("^[a-z][a-z0-9\\-\\.\\_]+", each.value)) ? data.aws_iam_policy_document.resource_pullthrough_cache[0].json : data.aws_iam_policy_document.empty[0].json,
     local.principals_push_access_non_empty ? data.aws_iam_policy_document.resource_push_access[0].json : data.aws_iam_policy_document.empty[0].json,
     local.principals_full_access_non_empty ? data.aws_iam_policy_document.resource_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
-    local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json,
-    local.organizations_full_access_non_empty ? data.aws_iam_policy_document.organization_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
-    local.organizations_readonly_access_non_empty ? data.aws_iam_policy_document.organizations_readonly_access[0].json : data.aws_iam_policy_document.empty[0].json,
-    local.organizations_push_non_empty ? data.aws_iam_policy_document.organization_push_access[0].json : data.aws_iam_policy_document.empty[0].json
+    local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json
   ])
 }
 
@@ -398,6 +298,24 @@ resource "aws_ecr_repository_policy" "pullthrough" {
   for_each   = local.repository_creation_enabled ? local.pullthrough_repositories : local.pullthrough_repositories_existing
   repository = each.key
   policy = join("", data.aws_iam_policy_document.pullthrough_resource[*].json)
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_ecr_replication_configuration" "same_account_cross_region" {
+  count = local.repository_creation_enabled && length(var.replication_regions) > 0 ? 1 : 0
+
+  replication_configuration {
+    dynamic "rule" {
+      for_each = var.replication_regions
+      content {
+        destination {
+          region      = rule.value
+          registry_id = data.aws_caller_identity.current.account_id
+        }
+      }
+    }
+  }
 }
 
 # resource "aws_ecr_replication_configuration" "replication_configuration" {
