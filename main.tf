@@ -1,36 +1,126 @@
- locals {
-   enabled       = module.this.enabled
-   enabled_count = local.enabled ? 1 : 0
-   
-  principals_readonly_access_non_empty = length(var.principals_readonly_access) > 0
-  principals_push_access_non_empty     = length(var.principals_push_access) > 0
-  principals_full_access_non_empty     = length(var.principals_full_access) > 0
-  principals_lambda_non_empty          = length(var.principals_lambda) > 0
-  ecr_need_policy                      = length(var.principals_full_access) + length(var.principals_readonly_access) + length(var.principals_push_access) + length(var.principals_lambda) > 0
-  
-   _name                       = var.use_fullname ? module.this.id : module.this.name
-  image_names                 = length(var.image_names) > 0 ? var.image_names : tomap(local._name)
-  repository_creation_enabled = local.enabled && var.repository_creation_enabled
+locals {
+  enabled = module.this.enabled && length(var.repositories) > 0
+  enabled_count = local.enabled ? 1 : 0
 
+  principals_readonly_access_non_empty     = length(var.principals_readonly_access) > 0
+  principals_pullthrough_access_non_empty = length(var.principals_pull_though_access) > 0
+  principals_push_access_non_empty         = length(var.principals_push_access) > 0
+  principals_full_access_non_empty         = length(var.principals_full_access) > 0
+  principals_lambda_non_empty              = length(var.principals_lambda) > 0
+
+  ecr_need_policy = (
+    length(var.principals_full_access)
+    + length(var.principals_readonly_access)
+    + length(var.principals_pull_though_access)
+    + length(var.principals_push_access)
+    + length(var.principals_lambda) > 0
+  )
+
+  image_names = keys(var.repositories)
+  repository_creation_enabled   = local.enabled && var.repository_creation_enabled
   principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_full_access, var.principals_lambda))
-  image_names_pullthrough       = toset([ for k,v in local.image_names : k if contains(var.pullthrough_prefixes, split("/", k)[0]) ])
+  image_names_pullthrough       = toset([ for k,v in var.repositories : k if contains(var.pullthrough_repository_prefixes, split("/", k)[0]) ])
 
-   standard_repositories    = local.ecr_need_policy && local.enabled ? setsubtract(keys(local.image_names), local.image_names_pullthrough) : []
-   pullthrough_repositories = local.ecr_need_policy && local.enabled ? local.image_names_pullthrough : []
+  standard_repositories    = local.ecr_need_policy && local.enabled ? setsubtract(local.image_names, local.image_names_pullthrough) : []
+  pullthrough_repositories = local.ecr_need_policy && local.enabled ? local.image_names_pullthrough : []
 
-   standard_repositories_existing    = local.enabled ?  setintersection(local.standard_repositories, data.aws_ecr_repositories.existing[0].names) : []
-   pullthrough_repositories_existing = local.enabled ? setintersection(local.pullthrough_repositories, data.aws_ecr_repositories.existing[0].names) : []
+  existing_repository_names         = length(data.aws_ecr_repositories.existing[0].names) > 0 ? data.aws_ecr_repositories.existing[0].names : []
+  standard_repositories_existing    = local.enabled ? setintersection(local.standard_repositories, local.existing_repository_names) : []
+  pullthrough_repositories_existing = local.enabled ? setintersection(local.pullthrough_repositories, local.existing_repository_names) : []
+
+  # remove key:value pairs from the lifecycle rules object when value is null.  For compliance with ECR API 
+  default_lifecycle_rules = [ for rule in var.default_lifecycle_rules : merge(
+    {
+      for k, v in rule:
+      k => v
+      if v != null
+    },
+    {
+      selection = {
+        for k, v in rule.selection:
+        k => v
+        if v != null
+      }
+    },
+    {
+      action = {
+        for k, v in rule.action:
+        k => v
+        if v != null
+      }
+    }
+  )]
+  
+  default_lifecycle_rules_json = jsonencode({ rules = local.default_lifecycle_rules})
+
+  # remove key:value pairs from the lifecycle rules object when value is null.  For compliance with ECR API
+  custom_lifecycle_rules = { for k, v in var.repositories:
+    k => [ for rule in v.lifecycle_rules_override: merge(
+      {
+        for i, j in rule:
+        i => j
+        if j != null
+      },
+      {
+        selection = {
+        for i, j in rule.selection:
+        i => j
+        if j != null
+        }
+      },
+      {
+        action = {
+          for i, j in rule.action:
+          i => j
+          if j != null
+        }
+      }
+    )]
+    if v.lifecycle_rules_override != null
+  }
+
+  custom_lifecycle_rules_json = { for k, v in local.custom_lifecycle_rules:
+    k => jsonencode({ rules = v})
+  }
+
+  image_tag_mutability = { for k, v in var.repositories:
+    k => v.image_tag_mutability != null ? {
+      image_tag_mutability = v.image_tag_mutability
+      image_tag_mutability_exclusion_filter = strcontains( v.image_tag_mutability, "_WITH_EXCLUSION") ? [
+        for exclusion_filter in v.image_tag_mutability_exclusion_filter : 
+        {
+          filter = exclusion_filter.filter
+          filter_type = exclusion_filter.filter_type
+        }
+      ] : []
+    } :
+    {
+      image_tag_mutability = var.default_image_tag_mutability
+      image_tag_mutability_exclusion_filter = var.default_image_tag_mutability_exclusion_filter
+    }  
+  }
 }
 
- data "aws_ecr_repositories" "existing" {
-   count = local.enabled_count
- }
+data "aws_caller_identity" "current" {}
+
+data "aws_ecr_repositories" "existing" {
+  count = local.enabled_count
+}
 
 resource "aws_ecr_repository" "name" {
-  for_each             = local.repository_creation_enabled ? local.image_names : {}
+  for_each             = local.repository_creation_enabled ? var.repositories : {}
   name                 = each.key
-  image_tag_mutability = var.image_tag_mutability
-  force_delete         = each.value.force_delete_override
+  image_tag_mutability = local.image_tag_mutability[each.key].image_tag_mutability
+
+  dynamic "image_tag_mutability_exclusion_filter" {
+    for_each = local.image_tag_mutability[each.key].image_tag_mutability_exclusion_filter
+    content {
+      filter = image_tag_mutability_exclusion_filter.value.filter
+      filter_type = image_tag_mutability_exclusion_filter.value.filter_type
+    }
+  }
+  
+  force_delete         = each.value.force_delete
 
   dynamic "encryption_configuration" {
     for_each = var.encryption_configuration == null ? [] : [var.encryption_configuration]
@@ -47,94 +137,11 @@ resource "aws_ecr_repository" "name" {
   tags = module.this.tags
 }
 
-locals {
-  untagged_image_rule = [{
-    rulePriority = length(var.protected_tags) + 1
-    description  = "Remove untagged images"
-    selection = {
-      tagStatus   = "untagged"
-      countType   = "imageCountMoreThan"
-      countNumber = 1
-    }
-    action = {
-      type = "expire"
-    }
-  }]
-
-  remove_old_image_rule = [{
-    rulePriority = length(var.protected_tags) + 2
-    description  = "Rotate images when reach ${var.max_image_count} images stored",
-    selection = {
-      tagStatus   = "any"
-      countType   = "imageCountMoreThan"
-      countNumber = var.max_image_count
-    }
-    action = {
-      type = "expire"
-    }
-  }]
-
-  protected_tag_rules = [
-    for index, tagPrefix in zipmap(range(length(var.protected_tags)), tolist(var.protected_tags)) :
-    {
-      rulePriority = tonumber(index) + 1
-      description  = "Protects images tagged with ${tagPrefix}"
-      selection = {
-        tagStatus     = "tagged"
-        tagPrefixList = [tagPrefix]
-        countType     = "imageCountMoreThan"
-        countNumber   = 999999
-      }
-      action = {
-        type = "expire"
-      }
-    }
-  ]
-
-  archive_remove_all_rule = [{
-    rulePriority = 2
-    description  = "Remove all images for archived repos"
-    selection = {
-      tagStatus   = "any"
-      countType   = "imageCountMoreThan"
-      countNumber = 1
-    }
-    action = {
-      type = "expire"
-    }
-  }]
-
-  archive_protected_tag_rules = [
-    
-    {
-      rulePriority = 1
-      description  = "Protects archived repo release images"
-      selection = {
-        tagStatus     = "tagged"
-        tagPrefixList = ["*.*.*"]
-        countType     = "imageCountMoreThan"
-        countNumber   = 999999
-      }
-      action = {
-        type = "expire"
-      }
-    }
-  ]
-
-  lifecycle_policy_default = jsonencode({
-    rules = concat(local.protected_tag_rules, local.untagged_image_rule, local.remove_old_image_rule)
-  })
-
-  lifecycle_policy_archive = jsonencode({
-    rules = concat(local.archive_protected_tag_rules, local.archive_remove_all_rule)
-  })
-}
-
 resource "aws_ecr_lifecycle_policy" "name" {
-  for_each   = local.repository_creation_enabled && var.enable_lifecycle_policy ? local.image_names : {}
+  for_each   = local.repository_creation_enabled ? var.repositories : {}
   repository = aws_ecr_repository.name[each.key].name
 
-  policy = each.value.archive_enabled ? local.lifecycle_policy_archive : local.lifecycle_policy_default
+  policy = each.value.lifecycle_rules_override == null ? local.default_lifecycle_rules_json : local.custom_lifecycle_rules_json[each.key]
 }
 
 data "aws_iam_policy_document" "empty" {
@@ -167,6 +174,24 @@ data "aws_iam_policy_document" "resource_readonly_access" {
       "ecr:GetRepositoryPolicy",
       "ecr:ListImages",
       "ecr:ListTagsForResource",
+    ]
+  }
+}
+data "aws_iam_policy_document" "resource_pullthrough_cache" {
+  count = local.enabled_count
+
+  statement {
+    sid    = "PullThroughAccess"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = local.principals_pullthrough_access
+    }
+
+    actions = [
+      "ecr:BatchImportUpstreamImage",
+      "ecr:TagResource"
     ]
   }
 }
@@ -210,27 +235,8 @@ data "aws_iam_policy_document" "resource_full_access" {
   }
 }
 
- data "aws_iam_policy_document" "resource_pull_through_cache" {
-   count = local.enabled_count
-
-   statement {
-     sid    = "PullThroughAccess"
-     effect = "Allow"
-
-     principals {
-       type        = "AWS"
-       identifiers = local.principals_pullthrough_access
-     }
-
-     actions = [
-       "ecr:BatchImportUpstreamImage",
-       "ecr:TagResource"
-     ]
-   }
- }
-
 data "aws_iam_policy_document" "lambda_access" {
-  count = local.enabled && length(var.principals_lambda) > 0 ? 1 : 0
+  count = module.this.enabled && length(var.principals_lambda) > 0 ? 1 : 0
 
   statement {
     sid    = "LambdaECRImageCrossAccountRetrievalPolicy"
@@ -268,38 +274,38 @@ data "aws_iam_policy_document" "lambda_access" {
 }
 
 data "aws_iam_policy_document" "resource" {
-  count                   = local.enabled_count
-  source_policy_documents = local.principals_readonly_access_non_empty ? [data.aws_iam_policy_document.resource_readonly_access[0].json] : [data.aws_iam_policy_document.empty[0].json]
+  for_each = toset(local.ecr_need_policy && module.this.enabled ? local.image_names : [])
+  source_policy_documents = local.principals_readonly_access_non_empty ? [
+    data.aws_iam_policy_document.resource_readonly_access[0].json
+  ] : [data.aws_iam_policy_document.empty[0].json]
   override_policy_documents = distinct([
     local.principals_push_access_non_empty ? data.aws_iam_policy_document.resource_push_access[0].json : data.aws_iam_policy_document.empty[0].json,
     local.principals_full_access_non_empty ? data.aws_iam_policy_document.resource_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
-    local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json,
+    local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json
   ])
 }
 
- data "aws_iam_policy_document" "pullthrough_resource" {
-   count                   = local.enabled_count
-   source_policy_documents = [data.aws_iam_policy_document.resource_pull_through_cache[0].json]
-   override_policy_documents = distinct([
-       local.principals_readonly_access_non_empty ? data.aws_iam_policy_document.resource_readonly_access[0].json : data.aws_iam_policy_document.empty[0].json,
-       local.principals_full_access_non_empty ? data.aws_iam_policy_document.resource_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
-       local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json,
-   ])
- }
-
-resource "aws_ecr_repository_policy" "name" {
-  for_each   = var.repository_creation_enabled ? local.standard_repositories : local.standard_repositories_existing
-  repository = each.key
-  policy     = join("", data.aws_iam_policy_document.resource[*].json)
+data "aws_iam_policy_document" "pullthrough_resource" {
+  count                   = local.enabled_count
+  source_policy_documents = [data.aws_iam_policy_document.resource_pullthrough_cache[0].json]
+  override_policy_documents = distinct([
+      local.principals_readonly_access_non_empty ? data.aws_iam_policy_document.resource_readonly_access[0].json : data.aws_iam_policy_document.empty[0].json,
+      local.principals_full_access_non_empty ? data.aws_iam_policy_document.resource_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
+      local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json,
+  ])
 }
 
- resource "aws_ecr_repository_policy" "pullthrough" {
-   for_each   = var.repository_creation_enabled ? local.pullthrough_repositories : local.pullthrough_repositories_existing
-   repository = each.key
-   policy = join("", data.aws_iam_policy_document.pullthrough_resource[*].json)
- }
+resource "aws_ecr_repository_policy" "name" {
+  for_each   = toset(local.ecr_need_policy && module.this.enabled ? local.image_names : [])
+  repository = aws_ecr_repository.name[each.value].name
+  policy     = data.aws_iam_policy_document.resource[each.value].json
+}
 
-data "aws_caller_identity" "current" {}
+resource "aws_ecr_repository_policy" "pullthrough" {
+  for_each   = local.repository_creation_enabled ? local.pullthrough_repositories : local.pullthrough_repositories_existing
+  repository = each.key
+  policy = join("", data.aws_iam_policy_document.pullthrough_resource[*].json)
+}
 
 resource "aws_ecr_replication_configuration" "same_account_cross_region" {
   count = local.repository_creation_enabled && length(var.replication_regions) > 0 ? 1 : 0
