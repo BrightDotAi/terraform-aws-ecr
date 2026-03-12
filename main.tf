@@ -3,6 +3,7 @@ locals {
   enabled_count = local.enabled ? 1 : 0
 
   principals_readonly_access_non_empty     = length(var.principals_readonly_access) > 0
+  principals_pull_through_access_non_empty = length(var.principals_pull_though_access) > 0
   principals_push_access_non_empty         = length(var.principals_push_access) > 0
   principals_full_access_non_empty         = length(var.principals_full_access) > 0
   principals_lambda_non_empty              = length(var.principals_lambda) > 0
@@ -18,7 +19,7 @@ locals {
   image_names = keys(var.repositories)
   repository_creation_enabled   = local.enabled && var.repository_creation_enabled
   principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_full_access, var.principals_lambda))
-  image_names_pullthrough       = toset([ for k,v in var.repositories : k if contains(var.pullthrough_prefixes, split("/", k)[0]) ])
+  image_names_pullthrough       = toset([ for k,v in var.repositories : k if contains(var.pullthrough_repository_prefixes, split("/", k)[0]) ])
 
   standard_repositories    = local.ecr_need_policy && local.enabled ? setsubtract(local.image_names, local.image_names_pullthrough) : []
   pullthrough_repositories = local.ecr_need_policy && local.enabled ? local.image_names_pullthrough : []
@@ -272,6 +273,7 @@ data "aws_iam_policy_document" "resource" {
     data.aws_iam_policy_document.resource_readonly_access[0].json
   ] : [data.aws_iam_policy_document.empty[0].json]
   override_policy_documents = distinct([
+    local.principals_pull_through_access_non_empty && contains(var.pullthrough_repository_prefixes, regex("^[a-z][a-z0-9\\-\\.\\_]+", each.value)) ? data.aws_iam_policy_document.resource_pull_through_cache[0].json : data.aws_iam_policy_document.empty[0].json,
     local.principals_push_access_non_empty ? data.aws_iam_policy_document.resource_push_access[0].json : data.aws_iam_policy_document.empty[0].json,
     local.principals_full_access_non_empty ? data.aws_iam_policy_document.resource_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
     local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json

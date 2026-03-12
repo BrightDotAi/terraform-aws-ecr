@@ -22,6 +22,18 @@ variable "principals_readonly_access" {
   default     = []
 }
 
+variable "principals_pull_though_access" {
+  type        = list(string)
+  description = "Principal ARNs to provide with pull though access to the ECR"
+  default     = []
+}
+
+variable "scan_images_on_push" {
+  type        = bool
+  description = "Indicates whether images are scanned after being pushed to the repository (true) or not (false)"
+  default     = true
+}
+
 variable "principals_lambda" {
   type        = list(string)
   description = "Principal account IDs of Lambdas allowed to consume ECR"
@@ -121,7 +133,8 @@ variable "repository_creation_enabled" {
   default     = true
 }
 
-variable "pullthrough_prefixes" {
+variable "pullthrough_repository_prefixes" {
+  description = "image name prefixes that indicate the image is a pullthrough cache"
   type = list(string)
   default = []
 }

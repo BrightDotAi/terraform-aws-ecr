@@ -37,17 +37,3 @@ output "repository_arn_map" {
   description = "Map of repository names to repository ARNs"
 }
 
-output "default_lifecycle_rules_json" {
-  value = local.default_lifecycle_rules_json
-  description = "debug output lifecycle rules json"
-}
-
-output "custom_lifecycle_rules_json" {
-  value = local.custom_lifecycle_rules_json
-  description = "debug output custom rules json"
-}
-
-output "image_tag_mutability" {
-  value = local.image_tag_mutability
-  description = "custom local map"
-}
