@@ -35,16 +35,16 @@ variable "principals_lambda" {
 }
 
 variable "repositories" {
-  type        = map(object({
-    force_delete = optional(bool, false)
+  type = map(object({
+    force_delete         = optional(bool, false)
     image_tag_mutability = optional(string) #May be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`. Defaults to `IMMUTABLE`"
     image_tag_mutability_exclusion_filter = optional(list(object({
       filter      = string
       filter_type = optional(string, "WILDCARD")
     })), [])
     lifecycle_rules_override = optional(list(object({
-      description = optional(string)
-      rulePriority   = number
+      description  = optional(string)
+      rulePriority = number
       selection = object({
         tagStatus      = string
         storageClass   = optional(string, "standard")
@@ -123,15 +123,15 @@ variable "repository_creation_enabled" {
 
 variable "pullthrough_repository_prefixes" {
   description = "image name prefixes that indicate the image is a pullthrough cache"
-  type = list(string)
-  default = []
+  type        = list(string)
+  default     = []
 }
 
 variable "default_lifecycle_rules" {
   description = "Default rules that will apply to all repositories unless overridden by repository specific rules. Action type can be 'expire' or 'transition'. Use 'transition' with targetStorageClass='archive' to archive images instead of deleting them. StorageClass can be 'standard' (default) or 'archive'."
   type = list(object({
-    description = optional(string)
-    rulePriority   = number
+    description  = optional(string)
+    rulePriority = number
     selection = object({
       tagStatus      = string
       storageClass   = optional(string, "standard")
@@ -178,7 +178,7 @@ variable "default_lifecycle_rules" {
     ])
     error_message = "Valid values for tagStatus are: tagged, untagged, or any."
   }
-  
+
   validation {
     condition = alltrue([
       for rule in var.default_lifecycle_rules :
