@@ -3,15 +3,15 @@ locals {
   enabled_count = local.enabled ? 1 : 0
 
   principals_readonly_access_non_empty     = length(var.principals_readonly_access) > 0
-  principals_pullthrough_access_non_empty = length(var.principals_pull_though_access) > 0
   principals_push_access_non_empty         = length(var.principals_push_access) > 0
   principals_full_access_non_empty         = length(var.principals_full_access) > 0
   principals_lambda_non_empty              = length(var.principals_lambda) > 0
+  principals_pullthrough_access_non_empty  = length(var.principals_pullthrough_access) > 0
 
   ecr_need_policy = (
     length(var.principals_full_access)
     + length(var.principals_readonly_access)
-    + length(var.principals_pull_though_access)
+    + length(var.principals_pullthrough_access)
     + length(var.principals_push_access)
     + length(var.principals_lambda) > 0
   )
@@ -19,7 +19,7 @@ locals {
   image_names = keys(var.repositories)
   repository_creation_enabled   = local.enabled && var.repository_creation_enabled
   principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_full_access, var.principals_lambda))
-  image_names_pullthrough       = toset([ for k,v in var.repositories : k if contains(var.pullthrough_repository_prefixes, split("/", k)[0]) ])
+  image_names_pullthrough       = toset([ for k,v in local.image_names : k if contains(var.pullthrough_repository_prefixes, split("/", k)[0]) ])
 
   standard_repositories    = local.ecr_need_policy && local.enabled ? setsubtract(local.image_names, local.image_names_pullthrough) : []
   pullthrough_repositories = local.ecr_need_policy && local.enabled ? local.image_names_pullthrough : []
