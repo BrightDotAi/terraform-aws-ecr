@@ -175,24 +175,6 @@ data "aws_iam_policy_document" "resource_readonly_access" {
     ]
   }
 }
-data "aws_iam_policy_document" "resource_pullthrough_cache" {
-  count = local.enabled_count
-
-  statement {
-    sid    = "PullThroughAccess"
-    effect = "Allow"
-
-    principals {
-      type        = "AWS"
-      identifiers = local.principals_pullthrough_access
-    }
-
-    actions = [
-      "ecr:BatchImportUpstreamImage",
-      "ecr:TagResource"
-    ]
-  }
-}
 
 data "aws_iam_policy_document" "resource_push_access" {
   count = local.enabled_count
@@ -213,6 +195,25 @@ data "aws_iam_policy_document" "resource_push_access" {
       "ecr:InitiateLayerUpload",
       "ecr:BatchCheckLayerAvailability",
       "ecr:PutImage",
+    ]
+  }
+}
+
+data "aws_iam_policy_document" "resource_pullthrough_cache" {
+  count = local.enabled_count
+
+  statement {
+    sid    = "PullThroughAccess"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = local.principals_pullthrough_access
+    }
+
+    actions = [
+      "ecr:BatchImportUpstreamImage",
+      "ecr:TagResource"
     ]
   }
 }
@@ -294,18 +295,18 @@ data "aws_iam_policy_document" "pullthrough_resource" {
 }
 
 resource "aws_ecr_repository_policy" "name" {
-  for_each   = toset(local.ecr_need_policy && module.this.enabled ? local.image_names : [])
-  repository = aws_ecr_repository.name[each.value].name
-  policy     = data.aws_iam_policy_document.resource[each.value].json
+  for_each   = var.repository_creation_enabled ? local.standard_repositories : local.standard_repositories_existing
+  repository = each.key
+  policy     = join("", data.aws_iam_policy_document.resource[*].json)
+}
+
+resource "aws_ecr_repository_policy" "pullthrough" {
+  for_each   = var.repository_creation_enabled ? local.pullthrough_repositories : local.pullthrough_repositories_existing
+  repository = each.key
+  policy = join("", data.aws_iam_policy_document.pullthrough_resource[*].json)
 }
 
 data "aws_caller_identity" "current" {}
-
-resource "aws_ecr_repository_policy" "pullthrough" {
-  for_each   = local.repository_creation_enabled ? local.pullthrough_repositories : local.pullthrough_repositories_existing
-  repository = each.key
-  policy     = join("", data.aws_iam_policy_document.pullthrough_resource[*].json)
-}
 
 resource "aws_ecr_replication_configuration" "same_account_cross_region" {
   count = local.repository_creation_enabled && length(var.replication_regions) > 0 ? 1 : 0

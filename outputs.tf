@@ -37,3 +37,7 @@ output "repository_arn_map" {
   description = "Map of repository names to repository ARNs"
 }
 
+output "pullthrough_repositories" {
+  value = local.pullthrough_repositories
+  description = "local pullthrough repos"
+}
