@@ -199,6 +199,23 @@ data "aws_iam_policy_document" "resource_push_access" {
   }
 }
 
+
+data "aws_iam_policy_document" "resource_full_access" {
+  count = local.enabled_count
+
+  statement {
+    sid    = "FullAccess"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = var.principals_full_access
+    }
+
+    actions = ["ecr:*"]
+  }
+}
+
 data "aws_iam_policy_document" "resource_pullthrough_cache" {
   count = local.enabled_count
 
@@ -218,24 +235,8 @@ data "aws_iam_policy_document" "resource_pullthrough_cache" {
   }
 }
 
-data "aws_iam_policy_document" "resource_full_access" {
-  count = local.enabled_count
-
-  statement {
-    sid    = "FullAccess"
-    effect = "Allow"
-
-    principals {
-      type        = "AWS"
-      identifiers = var.principals_full_access
-    }
-
-    actions = ["ecr:*"]
-  }
-}
-
 data "aws_iam_policy_document" "lambda_access" {
-  count = module.this.enabled && length(var.principals_lambda) > 0 ? 1 : 0
+  count = local.enabled && length(var.principals_lambda) > 0 ? 1 : 0
 
   statement {
     sid    = "LambdaECRImageCrossAccountRetrievalPolicy"
