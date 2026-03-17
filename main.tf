@@ -19,7 +19,8 @@ locals {
   image_names                   = keys(var.repositories)
   repository_creation_enabled   = local.enabled && var.repository_creation_enabled
   principals_pullthrough_access = toset(concat(var.principals_readonly_access, var.principals_full_access, var.principals_lambda))
-  image_names_pullthrough       = toset([for k, v in local.image_names : k if contains(var.pullthrough_repository_prefixes, split("/", k)[0])])
+  #image_names_pullthrough       = toset([for k, v in local.image_names : k if contains(var.pullthrough_repository_prefixes, split("/", k)[0])])
+  image_names_pullthrough = toset([for k in local.image_names : k if contains(var.pullthrough_repository_prefixes, split("/", k)[0])])
 
   standard_repositories    = local.ecr_need_policy && local.enabled ? setsubtract(local.image_names, local.image_names_pullthrough) : []
   pullthrough_repositories = local.ecr_need_policy && local.enabled ? local.image_names_pullthrough : []
@@ -274,14 +275,12 @@ data "aws_iam_policy_document" "lambda_access" {
 }
 
 data "aws_iam_policy_document" "resource" {
-  for_each = toset(local.ecr_need_policy && module.this.enabled ? local.image_names : [])
-  source_policy_documents = local.principals_readonly_access_non_empty ? [
-    data.aws_iam_policy_document.resource_readonly_access[0].json
-  ] : [data.aws_iam_policy_document.empty[0].json]
+  count                   = local.enabled_count
+  source_policy_documents = local.principals_readonly_access_non_empty ? [data.aws_iam_policy_document.resource_readonly_access[0].json] : [data.aws_iam_policy_document.empty[0].json]
   override_policy_documents = distinct([
     local.principals_push_access_non_empty ? data.aws_iam_policy_document.resource_push_access[0].json : data.aws_iam_policy_document.empty[0].json,
     local.principals_full_access_non_empty ? data.aws_iam_policy_document.resource_full_access[0].json : data.aws_iam_policy_document.empty[0].json,
-    local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json
+    local.principals_lambda_non_empty ? data.aws_iam_policy_document.lambda_access[0].json : data.aws_iam_policy_document.empty[0].json,
   ])
 }
 
@@ -304,7 +303,7 @@ resource "aws_ecr_repository_policy" "name" {
 resource "aws_ecr_repository_policy" "pullthrough" {
   for_each   = var.repository_creation_enabled ? local.pullthrough_repositories : local.pullthrough_repositories_existing
   repository = each.key
-  policy = join("", data.aws_iam_policy_document.pullthrough_resource[*].json)
+  policy     = join("", data.aws_iam_policy_document.pullthrough_resource[*].json)
 }
 
 data "aws_caller_identity" "current" {}

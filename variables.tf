@@ -46,8 +46,9 @@ variable "repositories" {
       description  = optional(string)
       rulePriority = number
       selection = object({
-        tagStatus      = string
-        storageClass   = optional(string, "standard")
+        tagStatus    = string
+        storageClass = optional(string)
+        #storageClass   = optional(string, "standard")
         countType      = string
         countNumber    = number
         countUnit      = optional(string)
@@ -61,6 +62,116 @@ variable "repositories" {
     })))
   }))
   description = "Map of Docker local image names, used as repository names for AWS ECR. Sets `force_delete` option"
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        rule.rulePriority > 0
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - rulePriority must be greater than 0"
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        rule.selection.tagStatus != "tagged" || (length(coalesce(rule.selection.tagPrefixList, [])) > 0 || length(coalesce(rule.selection.tagPatternList, [])) > 0)
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - if tagStatus is tagged - specify tagPrefixList or tagPatternList"
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        (length(coalesce(rule.selection.tagPrefixList, [])) == 0 || length(coalesce(rule.selection.tagPatternList, [])) == 0)
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - cannot specify both tagPrefixList and tagPatternList in the same rule.  Separate them into multiple rules"
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        rule.selection.countNumber > 0
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - countNumber must be > 0"
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        contains(["tagged", "untagged", "any"], rule.selection.tagStatus)
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - Valid values for tagStatus are: tagged, untagged, or any."
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        contains(["imageCountMoreThan", "sinceImagePushed", "sinceImagePulled", "sinceImageTransitioned"], rule.selection.countType)
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - Valid values for countType are: imageCountMoreThan, sinceImagePushed, sinceImagePulled, sinceImageTransitioned."
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        rule.selection.countType != "sinceImagePushed" || rule.selection.countUnit != null
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - For countType = 'sinceImagePushed', countUnit must be specified"
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        contains(["expire", "transition"], rule.action.type)
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - Valid values for action.type are: expire or transition."
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        rule.selection.storageClass == null ? true : contains(["standard", "archive"], rule.selection.storageClass)
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - Valid values for storageClass are: standard, archive, or null. Default is null."
+  }
+
+  validation {
+    condition = alltrue([
+      for repo in var.repositories :
+      repo.lifecycle_rules_override == null ? true : alltrue([
+        for rule in repo.lifecycle_rules_override :
+        rule.action.type != "transition" || rule.action.targetStorageClass == "archive"
+      ])
+    ])
+    error_message = "For repository custom lifecycle overrides - If action type is 'transition', action targetStorageClass must be set to 'archive'."
+  }
 }
 
 variable "default_image_tag_mutability" {
@@ -134,7 +245,7 @@ variable "default_lifecycle_rules" {
     rulePriority = number
     selection = object({
       tagStatus      = string
-      storageClass   = optional(string, "standard")
+      storageClass   = optional(string)
       countType      = string
       countNumber    = number
       countUnit      = optional(string)
@@ -168,7 +279,7 @@ variable "default_lifecycle_rules" {
       for rule in var.default_lifecycle_rules :
       rule.selection.countNumber > 0
     ])
-    error_message = "Count number should be > 0"
+    error_message = "Count number must be > 0"
   }
 
   validation {
@@ -184,7 +295,7 @@ variable "default_lifecycle_rules" {
       for rule in var.default_lifecycle_rules :
       contains(["imageCountMoreThan", "sinceImagePushed", "sinceImagePulled", "sinceImageTransitioned"], rule.selection.countType)
     ])
-    error_message = "Valid values for countType are: imageCountMoreThan or sinceImagePushed."
+    error_message = "Valid values for countType are: imageCountMoreThan, sinceImagePushed, sinceImagePulled, sinceImageTransitioned."
   }
 
   validation {
@@ -206,16 +317,16 @@ variable "default_lifecycle_rules" {
   validation {
     condition = alltrue([
       for rule in var.default_lifecycle_rules :
-      rule.action.type != "transition" || rule.action.targetStorageClass != null
+      rule.selection.storageClass == null ? true : contains(["standard", "archive"], rule.selection.storageClass)
     ])
-    error_message = "For action.type = 'transition', targetStorageClass must be specified."
+    error_message = "Valid values for storageClass are: standard, archive, or null. Defaults to null."
   }
 
   validation {
     condition = alltrue([
       for rule in var.default_lifecycle_rules :
-      contains(["standard", "archive"], rule.selection.storageClass)
+      rule.action.type != "transition" || rule.action.targetStorageClass == "archive"
     ])
-    error_message = "Valid values for storageClass are: standard or archive. Defaults to standard."
+    error_message = "If action type is 'transition', action targetStorageClass must be set to 'archive'."
   }
 }
