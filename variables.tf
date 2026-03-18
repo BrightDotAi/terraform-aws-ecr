@@ -176,8 +176,7 @@ variable "repositories" {
 
 variable "default_image_tag_mutability" {
   type        = string
-  default     = "MUTABLE"
-  description = "The tag mutability setting for all repository. Must be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`. Defaults to `IMMUTABLE`"
+  description = "The tag mutability setting for all repository. Must be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`."
 }
 
 variable "default_image_tag_mutability_exclusion_filter" {
@@ -218,12 +217,6 @@ variable "replication_regions" {
   type        = set(string)
   default     = []
   description = "List of destination regions in the same account for which to replicate ECR images to"
-}
-
-variable "prefixes_pullthrough_repositories" {
-  type        = list(string)
-  description = "Organization IDs to provide with push access to the ECR"
-  default     = []
 }
 
 variable "repository_creation_enabled" {
