@@ -177,6 +177,12 @@ variable "repositories" {
 variable "default_image_tag_mutability" {
   type        = string
   description = "The tag mutability setting for all repository. Must be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`."
+
+  validation {
+    condition     = contains(["MUTABLE", "IMMUTABLE", "IMMUTABLE_WITH_EXCLUSION", "MUTABLE_WITH_EXCLUSION"], var.default_image_tag_mutability)
+    error_message = "Must be one of: `MUTABLE`, `IMMUTABLE`, `IMMUTABLE_WITH_EXCLUSION`, or `MUTABLE_WITH_EXCLUSION`"
+  }
+
 }
 
 variable "default_image_tag_mutability_exclusion_filter" {

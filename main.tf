@@ -23,7 +23,7 @@ locals {
   standard_repositories    = local.ecr_need_policy && local.enabled ? setsubtract(local.image_names, local.image_names_pullthrough) : []
   pullthrough_repositories = local.ecr_need_policy && local.enabled ? local.image_names_pullthrough : []
 
-  existing_repository_names         = length(data.aws_ecr_repositories.existing[0].names) > 0 ? data.aws_ecr_repositories.existing[0].names : []
+  existing_repository_names         = try(data.aws_ecr_repositories.existing[0].names, [])
   standard_repositories_existing    = local.enabled ? setintersection(local.standard_repositories, local.existing_repository_names) : []
   pullthrough_repositories_existing = local.enabled ? setintersection(local.pullthrough_repositories, local.existing_repository_names) : []
 
