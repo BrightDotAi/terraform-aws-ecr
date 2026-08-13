@@ -27,6 +27,22 @@ locals {
   standard_repositories_existing    = local.enabled ? setintersection(local.standard_repositories, local.existing_repository_names) : []
   pullthrough_repositories_existing = local.enabled ? setintersection(local.pullthrough_repositories, local.existing_repository_names) : []
 
+  # Repositories that should carry a lifecycle policy.
+  #
+  # When this module creates the repositories it governs all of them. In a replica region
+  # (`repository_creation_enabled = false`) the repositories are created out-of-band by ECR
+  # cross-region replication and never enter Terraform state, so fall back to the declared
+  # repositories that actually exist in the registry — the same approach
+  # `aws_ecr_repository_policy` already takes via `standard_repositories_existing`.
+  #
+  # Without this, a replica region silently gets no lifecycle policies at all and accumulates
+  # every image ever replicated to it.
+  lifecycle_repositories = local.enabled ? (
+    local.repository_creation_enabled
+    ? toset(local.image_names)
+    : setintersection(toset(local.image_names), local.existing_repository_names)
+  ) : []
+
   # remove key:value pairs from the lifecycle rules object when value is null.  For compliance with ECR API 
   default_lifecycle_rules = [for rule in var.default_lifecycle_rules : merge(
     {
@@ -135,10 +151,14 @@ resource "aws_ecr_repository" "name" {
 }
 
 resource "aws_ecr_lifecycle_policy" "name" {
-  for_each   = local.repository_creation_enabled ? var.repositories : {}
-  repository = aws_ecr_repository.name[each.key].name
+  for_each   = local.lifecycle_repositories
+  repository = each.key
 
-  policy = each.value.lifecycle_rules_override == null ? local.default_lifecycle_rules_json : local.custom_lifecycle_rules_json[each.key]
+  policy = var.repositories[each.key].lifecycle_rules_override == null ? local.default_lifecycle_rules_json : local.custom_lifecycle_rules_json[each.key]
+
+  # `repository` is a plain name rather than a reference to `aws_ecr_repository.name`, so the
+  # implicit dependency that reference used to provide is declared explicitly instead.
+  depends_on = [aws_ecr_repository.name]
 }
 
 data "aws_iam_policy_document" "empty" {
