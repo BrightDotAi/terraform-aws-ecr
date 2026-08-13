@@ -10,13 +10,29 @@ on:
       - 'docs/**'
       - 'examples/**'
       - 'test/**'
+  # Allows a release to be cut without pushing an empty commit, and lets this
+  # workflow be exercised on demand rather than only via a merge to main.
+  workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  terraform-module:
-    uses: cloudposse/github-actions-workflows-terraform-module/.github/workflows/release-branch.yml@main
-    secrets:
-      github_access_token: ${{ secrets.REPO_ACCESS_TOKEN }}
+  # Calls cloudposse's shared auto-release workflow directly rather than going through
+  # cloudposse/github-actions-workflows-terraform-module/.github/workflows/release-branch.yml.
+  #
+  # That intermediary has been unusable since 2024-10-10: it passes a `github_access_token`
+  # secret to cloudposse/github-actions-workflows/.github/workflows/ci-codeowners.yml, but
+  # that workflow moved to a GitHub App and removed its `secrets` declaration. Passing a
+  # secret to a workflow that declares none is invalid, so GitHub rejects the whole call
+  # graph at parse time — every run of this workflow has failed since, with no logs.
+  # Upstream has no tags or releases to pin to and has not touched the file since 2024-06-11.
+  #
+  # The intermediary only added lint jobs (ci-terraform, ci-readme, ci-codeowners) on top of
+  # this release step. Those run in feature-branch.yml and are not needed to cut a release.
+  auto-release:
+    uses: cloudposse/.github/.github/workflows/shared-auto-release.yml@main
+    with:
+      publish: true
+    secrets: inherit
