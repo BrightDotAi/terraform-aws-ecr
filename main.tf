@@ -27,16 +27,8 @@ locals {
   standard_repositories_existing    = local.enabled ? setintersection(local.standard_repositories, local.existing_repository_names) : []
   pullthrough_repositories_existing = local.enabled ? setintersection(local.pullthrough_repositories, local.existing_repository_names) : []
 
-  # Repositories that should carry a lifecycle policy.
-  #
-  # When this module creates the repositories it governs all of them. In a replica region
-  # (`repository_creation_enabled = false`) the repositories are created out-of-band by ECR
-  # cross-region replication and never enter Terraform state, so fall back to the declared
-  # repositories that actually exist in the registry — the same approach
-  # `aws_ecr_repository_policy` already takes via `standard_repositories_existing`.
-  #
-  # Without this, a replica region silently gets no lifecycle policies at all and accumulates
-  # every image ever replicated to it.
+  # Repositories to attach a lifecycle policy to. Falls back to the declared repositories that
+  # exist in the registry when this module isn't creating them, as repository policies do.
   lifecycle_repositories = local.enabled ? (
     local.repository_creation_enabled
     ? toset(local.image_names)
@@ -156,8 +148,7 @@ resource "aws_ecr_lifecycle_policy" "name" {
 
   policy = var.repositories[each.key].lifecycle_rules_override == null ? local.default_lifecycle_rules_json : local.custom_lifecycle_rules_json[each.key]
 
-  # `repository` is a plain name rather than a reference to `aws_ecr_repository.name`, so the
-  # implicit dependency that reference used to provide is declared explicitly instead.
+  # `repository` is a plain name, so the dependency is declared rather than implied.
   depends_on = [aws_ecr_repository.name]
 }
 
